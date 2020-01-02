@@ -1,0 +1,20 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+venv/
+target/
+build/
+dist/
+
+# CMake build directories
+release/
+release-mingw/
+release-osx/
+debug/
+debug-mingw/
+debug-osx/
+MSVC/
+
+.DS_Store
