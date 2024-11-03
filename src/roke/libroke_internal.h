@@ -16,6 +16,7 @@
 #include "roke/common/pathutil.h"
 #include "roke/common/stack.h"
 #include "roke/common/argparse.h"
+#include "roke/common/cache.h"
 #include "roke/libroke.h"
 
 #define ROKE_MATCH_MASK (ROKE_GLOB|ROKE_REGEX)

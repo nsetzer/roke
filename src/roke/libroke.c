@@ -410,6 +410,9 @@ roke_build_index_impl(
 
     rstack_push(&stack, 0, 0, (uint8_t*) root);
 
+    roke_inode_cache_t cache;
+    roke_inode_cache_init(&cache, 1024 * 64 /* * 8 */);
+
     while (!rstack_empty(&stack)) {
 
         // the cancel build is implemented as a counter
@@ -473,19 +476,31 @@ roke_build_index_impl(
                 // write a directory entry to the directory index
                 // the entry is [index][size][name]
                 // where index is a pointer to the parent
-                fprintf(didx, "%" PFMT_SIZE_T " %" PFMT_SIZE_T " %s\n", (size_t) elem_index, (size_t) f_size, dir->d_name);
 
-                {
-                    // todo check for errors
-                    const uint8_t* parts[] = { elem_path, (uint8_t*) dir->d_name };
-                    _joinpath(parts, 2, temp_path, sizeof(temp_path));
-                }
+                if (roke_inode_cache_insert(&cache, dir->d_ino)!=ROKE_INODE_CACHE_EXISTS) {
 
-                if (elem_depth < ROKE_RECURSION_DEPTH) {
-                    rstack_push(&stack, ndirs, elem_depth + 1, temp_path);
-                    ndirs += 1;
+                    fprintf(didx, "%" PFMT_SIZE_T " %" PFMT_SIZE_T " %s\n", (size_t) elem_index, (size_t) f_size, dir->d_name);
+
+                    {
+                        // todo check for errors
+                        const uint8_t* parts[] = { elem_path, (uint8_t*) dir->d_name };
+                        _joinpath(parts, 2, temp_path, sizeof(temp_path));
+                    }
+
+                    if (elem_depth < ROKE_RECURSION_DEPTH) {
+
+                        //printf("ino: %d %s\n", dir->d_ino, temp_path);
+                        rstack_push(&stack, ndirs, elem_depth + 1, temp_path);
+                        ndirs += 1;
+
+                        
+                    } else {
+                        fprintf(eidx, "recursion depth too deep: %s\n", temp_path);
+                    }
+
                 } else {
-                    fprintf(eidx, "recursion depth too deep: %s\n", temp_path);
+                    printf("skipping dir: %s\n", temp_path);
+                    fprintf(eidx, "skipping dir: %s\n", temp_path);
                 }
 
             } else {
@@ -520,6 +535,7 @@ roke_build_index_impl(
 
 
   error:
+    roke_inode_cache_free(&cache);
 
     elapsed = ((float)(clock() - t_start))/CLOCKS_PER_SEC;
     fprintf(output,
@@ -527,8 +543,9 @@ roke_build_index_impl(
         ndirs, nfiles, elapsed);
 
     // todo: verbose should be named prints_status
-    if (verbose==0)
+    if (verbose==0) {
         fprintf(stdout, "stack capacity: %d/%d\n", stack.size, stack.capacity);
+    }
     rstack_free(&stack);
 
     if (fidx != NULL) {
@@ -546,8 +563,9 @@ roke_build_index_impl(
         roke_binarize_index(fidx_path, nfiles);
     }
 
-    if (verbose==0)
+    if (verbose==0) {
         printf("n stat calls: %" PFMT_SIZE_T "\n", _nstatcalls);
+    }
 
     return aborted;
 }
@@ -785,6 +803,63 @@ roke_index_close(roke_index_t* idx)
 }
 
 
+static int roke_locate_index_impl(FILE* output, string_matcher_t** strmatch, roke_index_t* fidx, roke_index_t* didx, int* count, int limit, char* suffix)
+{
+
+    uint32_t idx;
+    uint8_t buffer1[4096];
+
+    for (idx=0; idx< fidx->nitems; idx++) {
+
+        uint8_t* pname = fidx->strings + fidx->entries[idx].offset;
+        uint16_t name_length = fidx->entries[idx].namelen;
+        uint32_t parent_index = fidx->entries[idx].index;
+
+        if (string_matcher_match(strmatch[0], pname, name_length)==0) {
+
+            uint8_t* path[ROKE_RECURSION_DEPTH];
+            uint32_t path_idx = 1023;
+            // copy the path components into the array in reverse order
+            path[path_idx--] = pname;
+            while (parent_index > 0 && parent_index < didx->nitems) {
+                pname = didx->strings + didx->entries[parent_index].offset;
+                parent_index = didx->entries[parent_index].index;
+                path[path_idx--] = pname;
+            }
+            pname = didx->strings + didx->entries[0].offset;
+            path[path_idx] = pname;
+
+            const uint8_t** parts = (const uint8_t**) (path + path_idx);
+            size_t nparts = (sizeof(path) / sizeof(char*)) - path_idx;
+
+            // todo check for errors
+            _joinpath(parts, nparts, buffer1, sizeof(buffer1));
+
+            int i, m=0;
+            for (i=1; strmatch[i]!=NULL; i++) {
+                if (string_matcher_match(strmatch[i],
+                        buffer1, sizeof(buffer1))!=0) {
+                    m=1;
+                    break;
+                }
+            }
+            if (m!=0) {
+                continue;
+            }
+
+            fprintf(output, "%s%s\n", buffer1, suffix);
+            *count++;
+
+            if (limit > 0 && *count >= limit) {
+                break;
+            }
+
+        }
+    }
+
+    return 0;
+}
+
 /**
  * @brief find files patching a given set of patterns
  * @param config_dir null terminated string ending in a path separator
@@ -804,7 +879,6 @@ int roke_locate_impl(
 {
     int i=0;
     int count=0;
-    uint8_t buffer1[4096];
     uint8_t didx_path[4096];
     uint8_t fidx_path[4096];
 
@@ -844,55 +918,11 @@ int roke_locate_impl(
         if (roke_index_open(&fidx, fidx_path)!=0)
             goto error_fidx;
 
-        uint32_t idx;
+        // match the pattern against directories
+        roke_locate_index_impl(output, strmatch, &didx, &didx, &count, limit, "/");
 
-        for (idx=0; idx< fidx.nitems; idx++) {
-
-            uint8_t* pname = fidx.strings + fidx.entries[idx].offset;
-            uint16_t name_length = fidx.entries[idx].namelen;
-            uint32_t parent_index = fidx.entries[idx].index;
-
-            if (string_matcher_match(strmatch[0], pname, name_length)==0) {
-
-                uint8_t* path[ROKE_RECURSION_DEPTH];
-                uint32_t path_idx = 1023;
-                // copy the path components into the array in reverse order
-                path[path_idx--] = pname;
-                while (parent_index > 0 && parent_index < didx.nitems) {
-                    pname = didx.strings + didx.entries[parent_index].offset;
-                    parent_index = didx.entries[parent_index].index;
-                    path[path_idx--] = pname;
-                }
-                pname = didx.strings + didx.entries[0].offset;
-                path[path_idx] = pname;
-
-                const uint8_t** parts = (const uint8_t**) (path + path_idx);
-                size_t nparts = (sizeof(path) / sizeof(char*)) - path_idx;
-
-                // todo check for errors
-                _joinpath(parts, nparts, buffer1, sizeof(buffer1));
-
-                int m=0;
-                for (i=1; strmatch[i]!=NULL; i++) {
-                    if (string_matcher_match(strmatch[i],
-                            buffer1, sizeof(buffer1))!=0) {
-                        m=1;
-                        break;
-                    }
-                }
-                if (m!=0) {
-                    continue;
-                }
-
-                fprintf(output, "%s\n", buffer1);
-                count++;
-
-                if (limit > 0 && count >= limit) {
-                    break;
-                }
-
-            }
-        }
+        // match the pattern against files
+        roke_locate_index_impl(output, strmatch, &fidx, &didx, &count, limit, "");
 
     error_fidx:
         roke_index_close(&fidx);
@@ -925,18 +955,38 @@ roke_index_dirinfo(
 
     if (didx == NULL) {
         fprintf(stderr, "failed to open: %s\n", didx_path);
-        return 1;
+        return 0;
     }
 
     size_t count;
     roke_entry_t  entry;
     count=fread(root, sizeof(uint8_t), 16, didx);
-    if (count != 16) { fclose(didx); return 0; }
+    if (count != 16) { 
+        fclose(didx); 
+        fprintf(stderr, "failed to read header\n");
+        return 0; 
+    }
     count=fread(&entry, sizeof(entry), 1, didx);
-    if (count != 16) { fclose(didx); return 1; }
+    if (count != 1) { 
+        fclose(didx); 
+        fprintf(stderr, "failed to read entry %d != %d\n", count, sizeof(entry));
+        return 0; 
+    }
     fseek(didx, entry.offset, SEEK_SET);
+
+
+    uint32_t index;     // the parent index of this file or directory
+    uint64_t f_size;    // file: size of the file, directory: sum of contained files
+    uint16_t namelen;   // the length of the file name
+    uint32_t offset;    // the offset (from the start of the memory address
+                        // where the name can be found.
+
     count=fread(root, sizeof(uint8_t), entry.namelen + 1, didx);
-    if (count != (entry.namelen + 1)) { fclose(didx); return 1; }
+    if (count != (entry.namelen + 1)) { 
+        fclose(didx);
+        fprintf(stderr, "failed to read entry root\n");
+        return 0; 
+    }
 
     fclose(didx);
 
@@ -981,7 +1031,6 @@ int roke_index_info(
     if (count != 1) { fclose(fidx); return 0; }
     fclose(fidx);
 
-    // todo delete the create_time function and move the source here
     *mtime = creation_time(didx_path);
 
     return 0;

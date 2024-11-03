@@ -37,6 +37,9 @@ roke_list(
     }
 
     uint64_t ndirs_total=0, nfiles_total=0;
+
+    fprintf(stdout, "%-24s %9s %9s%7s        %s\n", "Name", "#Dirs", "#Files", "Age", "Root");
+
     while ((dir = readdir(d)) != NULL) {
 
         // find all databases,
@@ -46,10 +49,18 @@ roke_list(
         }
 
         strcpy_safe((uint8_t*)name, sizeof(name), (uint8_t*)dir->d_name);
-        name[strlen(name) - 6] = '\0';
+        int pos = ((int)strlen(name)) - 6;
+        if (pos > 0) {
+            name[strlen(name) - 6] = '\0';
+        }
 
-        roke_index_dirinfo(config_dir, name,
+        memset(scratch, 0, sizeof(scratch));
+        int rv = roke_index_dirinfo(config_dir, name,
             scratch, sizeof(scratch));
+        if (rv <= 0) {
+            fprintf(stderr, "failed to get index info\n");
+            continue;
+        }
 
         uint32_t ndirs, nfiles;
 		uint64_t mtime;
@@ -63,9 +74,9 @@ roke_list(
 
         if (age > 24) {
             age /= 24.0f;
-            fprintf(stdout, "%s:\n   root: %s\n   dirs:  %d\n   files: %d\n   age: %.2f days\n", name, scratch, ndirs, nfiles, age);
+            fprintf(stdout, "%-24s %9d %9d %7.2f days  %s\n", name, ndirs, nfiles, age, scratch);
         } else {
-            fprintf(stdout, "%s:\n   root: %s\n   dirs:  %d\n   files: %d\n   age: %.2f hours\n", name, scratch, ndirs, nfiles, age);
+            fprintf(stdout, "%-24s %9d %9d %7.2f hours %s\n", name, ndirs, nfiles, age, scratch);
         }
 
     }

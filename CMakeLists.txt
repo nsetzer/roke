@@ -93,6 +93,8 @@ set(libroke_src
     ${ROKE_SRC}/roke/common/boyer_moore.c
     ${ROKE_SRC}/roke/common/boyer_moore.h
     ${ROKE_SRC}/roke/common/compat.h
+    ${ROKE_SRC}/roke/common/cache.c
+    ${ROKE_SRC}/roke/common/cache.h
     ${ROKE_SRC}/roke/common/pathutil.c
     ${ROKE_SRC}/roke/common/pathutil.h
     ${ROKE_SRC}/roke/common/stack.c
@@ -160,6 +162,11 @@ function(build_roke_binary name main)
         ${ROKE_SRC}/roke/libroke.h
         ${ROKE_SRC}/roke/libroke_internal.h)
     TARGET_LINK_LIBRARIES(${name} libroke)
+    set_target_properties(${name} PROPERTIES
+        BUILD_RPATH "$ORIGIN"
+        INSTALL_RPATH "$ORIGIN/../lib"
+    )
+
 endfunction()
 
 
@@ -190,8 +197,12 @@ function(build_roke_test name main)
         ${ROKE_SRC}/roke/libroke_internal.h)
     TARGET_LINK_LIBRARIES("test-${name}" libroke)
     add_test(NAME "test-${name}"
-         COMMAND "test-${name}" ${ARGN}
-         WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+        COMMAND "test-${name}" ${ARGN}
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+    set_target_properties("test-${name}" PROPERTIES
+        BUILD_RPATH "$ORIGIN"
+        INSTALL_RPATH "$ORIGIN/../lib"
+    )
 endfunction()
 
 build_roke_test("unittest"    ${ROKE_SRC}/roke/common/unittest_test.c)
