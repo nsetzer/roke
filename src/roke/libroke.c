@@ -674,20 +674,37 @@ roke_locate(
 {
     string_matcher_t smopt1;
     string_matcher_t smopt2;
-    string_matcher_t* smopts[3]; // hardcoding to 3 for now...
+    // array of string matchers, final entry must be a null pointer
+    string_matcher_t* smopts[3];
+    memset(smopts, 0, sizeof(smopts));
+
     int i=0;
-    string_matcher_init(&smopt1, (uint8_t*)patterns[0], strlen((char*)patterns[0]), match_flags);
+    int err;
+    
+    err = string_matcher_init(&smopt1, (uint8_t*)patterns[0], strlen((char*)patterns[0]), match_flags);
+    if (err!=0) {
+        printf("error: failed to initialize string matcher\n");
+        goto error;
+    }
 
     smopts[0] = &smopt1;
     smopts[1] = NULL;
 
     if (npatterns > 1) {
-        string_matcher_init(&smopt2, (uint8_t*)patterns[1], strlen((char*)patterns[1]), match_flags);
+        err = string_matcher_init(&smopt2, (uint8_t*)patterns[1], strlen((char*)patterns[1]), match_flags);
+
+        if (err!=0) {
+            printf("error: failed to initialize string matcher\n");
+            goto error;
+        }
+
         smopts[1] = &smopt2;
         smopts[2] = NULL;
     }
 
     int v = roke_locate_impl(stdout, (uint8_t*)config_dir, smopts, limit);
+
+error:
 
     for (i=0; smopts[i]!=NULL; i++) {
         string_matcher_free(smopts[i]);
@@ -848,9 +865,9 @@ static int roke_locate_index_impl(FILE* output, string_matcher_t** strmatch, rok
             }
 
             fprintf(output, "%s%s\n", buffer1, suffix);
-            *count++;
+            (*count)++;
 
-            if (limit > 0 && *count >= limit) {
+            if (limit > 0 && (*count) >= limit) {
                 break;
             }
 
@@ -896,6 +913,7 @@ int roke_locate_impl(
     while ((dir = readdir(d)) != NULL) {
 
         if (limit > 0 && count >= limit) {
+            printf("limit reached a %d/%d\n", count, limit);
             break;
         }
 

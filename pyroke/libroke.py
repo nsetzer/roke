@@ -28,7 +28,10 @@ def _buildArtifact(so_name, platname):
     elif platname == "darwin":
         build_path = os.path.join(os.getcwd(), "release-osx", "lib", so_name)
     else:
-        build_path = os.path.join(os.getcwd(), "release", "lib", so_name)
+
+        build_path = os.path.join(os.getcwd(), "build", "lib", so_name)
+        if not os.path.exists(build_path):
+            build_path = os.path.join(os.getcwd(), "debug", "lib", so_name)
 
     return build_path;
 
@@ -66,6 +69,8 @@ def _findLibrary(so_name, platname):
         path = inst_path
     elif os.path.exists(build_path):
         path = build_path
+    elif os.path.exists("/usr/local/lib/%s"%so_name):
+        path = "/usr/local/lib/%s"%so_name
     else:
         raise RuntimeError("not Found: %s"%(so_name))
     return path
@@ -98,6 +103,7 @@ def LoadLibrary(libname):
     """
     platname = platform.system().lower()
     path = FindLibrary(libname)
+    print(path)
 
     if platname == 'windows':
         module = ctypes.WinDLL( path )

@@ -2,10 +2,10 @@
 
 import os, sys
 import datetime
-from PyQt5.QtCore import *
-from PyQt5.QtWidgets import *
-from PyQt5.QtGui import *
-from .TableView import ListView, TableView, StyledItemDelegate
+from PyQt6.QtCore import *
+from PyQt6.QtWidgets import *
+from PyQt6.QtGui import *
+from .TableView import ListView, TableView, StyledItemDelegate, RowValueRole
 from .libroke import RokeException, default_config_dir, \
     build, rebuild, build_cancel, rename_index, \
     find, index_info, \
@@ -168,9 +168,10 @@ class OptionsDialog(QDialog):
         self.setWindowTitle("Options")
 
         self.table = TableView(self)
+        self.table.setColumnHeaderClickable(True)
         self.table.setSortingEnabled(True)
         self.table.setVerticalHeaderVisible(False)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.MouseReleaseRight.connect(self.onShowContextMenu)
         model = self.table.baseModel()
         model.addColumn(0, "Age", editable=False)
@@ -290,7 +291,7 @@ class OptionsDialog(QDialog):
 
                 if delta.days == 0:
                     hours = delta.total_seconds() / 3600
-                    stime = "%.2f hours" % ()
+                    stime = "%.2f hours" % (hours)
                 else:
                     stime = "%d days" % (delta.days)
 
@@ -505,6 +506,16 @@ class RebuildIndexDialog(StoppableDialog):
         self.pbar.setRange(0,1)
         self.pbar.setValue(1)
 
+class RokeTableView(TableView):
+
+    def onMouseDoubleClick(self, index):
+        row = index.data(RowValueRole)
+        dir_path = row[0]
+        file_name = row[1]
+        path = os.path.join(dir_path, file_name)
+        args = ["xdg-open", path]
+        subprocess.run(args)
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super(MainWindow, self).__init__()
@@ -532,35 +543,46 @@ class MainWindow(QMainWindow):
         self.btn_search.clicked.connect(self.onReturnPressed)
         self.btn_search.setToolTip("Execute a search")
 
-        self.toolbar = QToolBar(self)
-        self.toolbar.setMovable(False)
-        self.toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.toolbar = QHBoxLayout()
+        #self.toolbar.setMovable(False)
+        #self.toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         #self.toolbar.setStyleSheet('QToolBar{spacing:4px;}')
         self.toolbar.layout().setContentsMargins(16, 4, 16, 4)
         self.toolbar.layout().setSpacing(8)
-        self.addToolBar(self.toolbar)
+        #self.addToolBar(self.toolbar)
 
+        #self.toolbar.addWidget(self.btn_mode)
         self.toolbar.addWidget(QLabel(self))
 
-        self.btn_options = self.toolbar.addAction(self._makeOptionsIcon(), "Options",
-            self.showOptionDialog)
-        self.btn_options.setToolTip("Manage Roke Options")
+        self.btn_options = QPushButton(self._makeOptionsIcon(), "", self)
+        self.btn_options.clicked.connect(self.showOptionDialog)
 
-        self.btn_case = self.toolbar.addAction(self._makeCaseIcon(), "Case",
-            self.onSearchCaseClicked)
-        self.btn_case.setToolTip("Toggle case-insensitive search")
+        self.btn_case = QPushButton(self._makeCaseIcon(), "", self)
+        self.btn_case.clicked.connect(self.onSearchCaseClicked)
         self.btn_case.setCheckable(True)
 
+        # self.btn_options = self.toolbar.addAction(self._makeOptionsIcon(), "Options",
+        #     self.showOptionDialog)
+        # self.btn_options.setToolTip("Manage Roke Options")
+
+        # self.btn_case = self.toolbar.addAction(self._makeCaseIcon(), "Case",
+        #     self.onSearchCaseClicked)
+        # self.btn_case.setToolTip("Toggle case-insensitive search")
+        # self.btn_case.setCheckable(True)
+
+        self.toolbar.addWidget(self.btn_options)
+        self.toolbar.addWidget(self.btn_case)
         self.toolbar.addWidget(self.btn_mode)
         self.toolbar.addWidget(self.edit)
         self.toolbar.addWidget(self.btn_search)
         self.toolbar.addWidget(QLabel(self))
 
-        self.table = TableView(self)
+        self.table = RokeTableView(self)
+        self.table.setColumnHeaderClickable(True)
         self.table.setLastColumnExpanding(True)
         self.table.setSortingEnabled(True)
-        # self.table.setVerticalHeaderVisible(True)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setVerticalHeaderVisible(False)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.MouseReleaseRight.connect(self.onShowContextMenu)
         model = self.table.baseModel()
         model.addColumn(1, "Name", editable=False)
@@ -569,6 +591,7 @@ class MainWindow(QMainWindow):
         self.centralWidget = QWidget(self)
 
         self.vbox = QVBoxLayout(self.centralWidget)
+        self.vbox.addLayout(self.toolbar)
         self.vbox.addWidget(self.table)
         # l t r b
         self.vbox.setContentsMargins(4,0,4,0)
@@ -606,7 +629,7 @@ class MainWindow(QMainWindow):
         xt = (1-scale)*pixmap.height() / 2
         t = QTransform().translate(xt, xt).scale(scale,scale)
         painter.setTransform(t)
-        painter.fillPath(path, Qt.black);
+        painter.fillPath(path, Qt.GlobalColor.black)
         painter.drawPath(path)
         painter.end()
         return QIcon(pixmap)
@@ -620,7 +643,7 @@ class MainWindow(QMainWindow):
         font = painter.font()
         font.setPixelSize(int(pixmap.height()*.75))
         painter.setFont(font)
-        painter.drawText(0,0,pixmap.width(), pixmap.height(),Qt.AlignHCenter|Qt.AlignVCenter,"Aa")
+        painter.drawText(0,0,pixmap.width(), pixmap.height(),Qt.AlignmentFlag.AlignHCenter|Qt.AlignmentFlag.AlignVCenter,"Aa")
         painter.end()
         return QIcon(pixmap)
 
@@ -641,7 +664,7 @@ class MainWindow(QMainWindow):
     def showOptionDialog(self):
 
         dialog = OptionsDialog(self.config_dir, self.config)
-        if dialog.exec_():
+        if dialog.exec():
             self.config.setSearchLimit(dialog.getSearchLimit())
             self.updateFromConfig()
 
@@ -666,7 +689,7 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         menu.add("Copy File Name", self.actionCopyName)
         menu.add("Copy File Path", self.actionCopyPath)
-        menu.exec_(event.globalPos())
+        menu.exec(event.globalPos())
 
     def onSearchCaseClicked(self, checked=False):
         flags = 0
@@ -721,7 +744,7 @@ def main():
 
     sys.excepthook = handle_exception
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 if __name__ == '__main__':
     main()
